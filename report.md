@@ -1,370 +1,258 @@
-# Simple Docker. DO5_SimpleDocker.
+## Инструкция по проверке и запуску скриптов (Part 1 - Part 3)
 
-## Part 0. Установка докера
+### Part 1. Генератор файлов
 
-  * *Скриншот выполнения команд:*
-    ![Установка докера](/screens/download_docker.png)
-    *(На скриншоте показан процесс скачивания докера).*
-
-## Part 1. Готовый докер
-
-* **Проверка готовности докера и выкачивание официального образа Nginx из Docker Hub**
-  * Использована команда `docker pull nginx` для загрузки последней стабильной версии образа.
-* **Запуск и проверка первого изолированного контейнера**
-  * Контейнер запущен в фоновом режиме с помощью команды `docker run -d nginx`.
-  * Статус работы контейнера проверен через команду `docker ps`.
-  * *Скриншот выполнения команд:*
-  * ![Скриншот выполнения команд](/screens/screen_pull_images.png)
-
-* **Инспекция контейнера и сбор параметров для отчёта:**
-  * Детальная информация получена с помощью команды `docker inspect -s <container_id>`. Флаг `-s` применен для принудительного вычисления занимаемого дискового пространства.
-  * ![команда docker inspect](/screens/docker_inspect.png)
-  * Из вывода команды определены следующие ключевые метрики контейнера:
-    * **Размер контейнера:** `SizeRw` (собственный слой записи) — 0 B (изменений нет), `SizeRootFs` (виртуальный размер) — 143 MB.
-  * ![Размер контейнера](/screens/screen_inspect_size.png)
-    * **Список замапленных портов:** В блоке `"Ports"` указано значение `null` (порты не пробрасывались на хост-машину).
-  * ![Список замапленных портов](/screens/screen_inspect_ports.png)
-    * **IP-адрес контейнера:** В подсистеме `"NetworkSettings"` -> `"Networks"` -> `"bridge"` зафиксирован IP-адрес `172.17.0.2`.
-  * ![Вывод команды docker inspect с выделенными параметрами](/screens/screen_inspect_network.png)
-    *(На скриншотах были показаны ключевые секции JSON-файла инспекции: блок размера SizeRootFs, пустая конфигурация Ports и внутренний IP-адрес контейнера).*
-
-* **Остановка базового контейнера и Публикация портов и проверка веб-сервера:**
-  * Контейнер остановлен командой `docker stop <container_id>`.
-  * Факт остановки подтвержден повторным вызовом `docker ps`, который вернул пустую таблицу процессов.
-  * Запущен новый контейнер с маппингом портов 80 и 443 один к одному на локальную машину командой: `docker run -d -p 80:80 -p 443:443 --name my_nginx nginx`.
-  * Выполнена проверка доступности веб-сервера. Поскольку окружение развернуто на Ubuntu Server, отправлен локальный запрос через консольную утилиту `curl http://localhost:80`.
-  * *Скриншот отсановки, а после запуска с портами и приветственной страницы:*
-  * ![Запуск контейнера с маппингом портов и проверка доступности страницы](/screens/screen_localhost_80.png)
-    *(На скриншоте показаны вышеописанные команды).*
-  * *Скриншот доступности через браузер посредством проброса порта:*
-  * ![Скриншот с браузера](/screens/screen_localhost_browser.png)
-    *(Выполнена проверка доступности веб-сервера через браузер).*
-    
-* **Перезапуск контейнера и финальный аудит:**
-  * Выполнен перезапуск веб-сервера с помощью команды `docker restart my_nginx`.
-  * Работоспособность контейнера после рестарта успешно проверена через `docker ps` (статус сменился на "Up X seconds").
-  * *Скриншот перезапуска контейнера:*
-    ![Перезапуск контейнера my_nginx и проверка его аптайма](/screens/screen_restart.png)
-    *(На скриншоте виден вызов команды docker restart и финальная проверка через docker ps, отображающая активный статус контейнера).*
-
-## Part 2. Операции с контейнером
-
-*   **Чтение оригинальной конфигурации Nginx**
-    *   Была выполнена команда `docker exec` для просмотра дефолтного конфигурационного файла `nginx.conf` внутри запущенного контейнера `my-nginx2`:
+* **Запуск скрипта создания папок и файлов**
+  * Передача 6 обязательных параметров (путь, папки, маска папок, файлы, маска файлов, размер):
     ```bash
-    docker exec my-nginx2 cat /etc/nginx/nginx.conf
+    ./main.sh /home/m/test_folder 4 abc 5 def 10kb
     ```
-    ![Вызов и вывод команды exec для чтения оригинального nginx.conf внутри контейнера](/screens/01_cat_original_config.png)
 
-*   **Создание и настройка файла конфигурации на локальной машине**
-    *   На хост-машине был создан локальный файл `nginx.conf`, в блок `server` которого добавлен путь `/status` с директивой `stub_status on;` для сбора метрик состояния веб-сервера.
-    *   Полное содержимое созданного конфигурационного файла, открытого в текстовом редакторе, представлено на скриншоте ниже:
-    *   ![Содержимое созданного локального файла конфигурации nginx.conf с настроенным блоком stub_status](/screens/02_local_nginx_config.png)
-
-*   **Применение конфигурации и перезапуск веб-сервера**
-    *   Созданный файл конфигурации был скопирован внутрь контейнера поверх старого файла с помощью команды `docker cp`.
-    *   После этого была выполнена команда `docker exec` с сигналом `nginx -s reload` для безопасного перезапуска Nginx внутри контейнера без его остановки:
+* **Проверка результатов для проверяющего**
+  * Просмотр созданной структуры каталогов:
     ```bash
-    docker cp nginx.conf my-nginx2:/etc/nginx/nginx.conf
-    docker exec my-nginx2 nginx -s reload
+    ls -la /home/m/test_folder
     ```
-    *   ![Процесс копирования файла конфигурации внутрь контейнера и последующий reload службы Nginx](/screens/03_copy_and_reload.png)
-
-*   **Проверка работоспособности страницы статуса**
-    *   С помощью утилиты `curl` выполнен проверочный запрос к порту веб-сервера. По пути `/status` успешно отдаётся страница с актуальными техническими метриками (количество активных подключений, принятых и обработанных запросов):
+  * Просмотр автоматически созданного текстового журнала генерации:
     ```bash
-    curl http://localhost:8000/status
+    cat *.log
     ```
-    *   ![Успешный вывод страницы статуса сервера Nginx по адресу localhost:8000/status через утилиту curl](/screens/04_check_status_first.png)
 
+### Part 2. Засорение файловой системы
 
-## Перенос и восстановление контейнера через архив
-
-*   **Экспорт контейнера и остановка служб**
-    *   Файловая система настроенного контейнера со всеми изменениями была экспортирована в один плоский архивный файл `container.tar`.
-    *   После завершения экспорта исходный работающий контейнер был остановлен:
+* **Запуск скрипта штормовой атаки диска**
+  * Фиксация объема свободного места до начала теста:
     ```bash
-    docker export my-nginx2 > container.tar
-    docker stop my-nginx2
+    df -h /
     ```
-    *   ![Вызов команд экспорта файловой системы контейнера в архив container.tar и последующей остановки контейнера](/screens/05_export_and_stop.png)
-
-*   **Принудительное удаление оригинального образа и контейнера**
-    *   Был удален оригинальный докер-образ `nginx` с использованием флага принудительного удаления `-f`, при этом сам остановленный контейнер на данном шаге намеренно оставался в системе.
-    *   Вслед за образом был удален и сам остановленный контейнер `my-nginx2`:
+  * Запуск генератора тяжелых файлов (маски имен, маска файлов, размер строго в Mb):
     ```bash
-    docker rmi -f nginx
-    docker rm my-nginx2
+    ./main.sh az az.txt 100Mb
     ```
-    *   ![Принудительное удаление докер-образа nginx и окончательное удаление старого контейнера](/screens/06_rmi_and_rm.png)
 
-*   **Импорт образа из архива и запуск нового контейнера**
-    *   Из созданного ранее слепка `container.tar` был импортирован новый докер-образ под именем `imported_nginx`.
-    *   На базе импортированного образа был создан и запущен новый контейнер `my_new_nginx`. На старте была вручную передана команда запуска Nginx в фоновом режиме для восстановления утерянных метаданных:
+* **Проверка лимитов для проверяющего**
+  * Повторная проверка дискового пространства после завершения/остановки скрипта:
     ```bash
-    docker import container.tar imported_nginx
-    docker run -d -p 80:80 --name my_new_nginx imported_nginx nginx -g 'daemon off;'
+    df -h /
     ```
-    ![Импорт нового образа из файла container.tar и успешный запуск контейнера с явным указанием команды старта](/screens/07_import_and_run.png)
-
-*   **Итоговая проверка работоспособности восстановленной системы**
-    *   Выполнен повторный запрос к адресу `http://localhost:80/status`. Страница состояния Nginx успешно отдаёт данные, что подтверждает сохранность конфигурационного файла после процедуры экспорта и импорта контейнера через `.tar` архив:
+  * *Ожидаемый результат:* Доступное место (`Avail`) на диске уменьшилось до защитного лимита в **1.0G** (или упёрлось в квоту пользователя).
+  * Вывод сформированного лога сессии засорения:
     ```bash
-    curl http://localhost:80/status
+    cat garbage_collector.log
     ```
-    *   ![Финальная проверка доступности страницы статуса Nginx на заново развернутом из архива контейнере](/screens/08_final_status_check.png)
 
-## Part 3. Мини веб-сервер
+### Part 3. Очистка файловой системы
 
-* **Написание и компиляция FastCGI-сервера на C (`server.c`)**
-  * Создан файл `server.c` с выводом страницы «Hello, World!».
-  * Сборка исходного кода в исполняемый бинарный файл:
+* **Способ 1. Удаление по лог-файлу**
+  * Запуск утилиты и ввод абсолютного пути к журналу из Part 2 (скрипт удалит мусор точечно):
     ```bash
-    gcc server.c -o server -lfcgi
+    ./main.sh 1
+    # При запросе пути ввести: /home/m/04/garbage_collector.log
     ```
 
-* **Запуск сервера через spawn-fcgi**
-  * Выдача прав на исполнение бинарника и его запуск на порту 8080:
+* **Способ 2. Удаление по дате и времени создания**
+  * Запуск утилиты и ввод временного интервала, в который проводился тест засорения:
     ```bash
-    chmod +x ./server
-    spawn-fcgi -p 8080 ./server
+    ./main.sh 2
+    # При запросе ввести промежуток, например:
+    # Время начала: 2026-07-20 14:00
+    # Время конца: 2026-07-20 14:15
     ```
 
-* **Настройка конфигурации Nginx**
-  * Создан файл по пути `./nginx/nginx.conf` со следующим блоком проксирования:
-    ```nginx
-    server {
-        listen 81;
-        location / {
-            fastcgi_pass 127.0.0.1:8080;
-            include /etc/nginx/fastcgi_params;
-        }
-    }
-    ```
-
-* **Запуск Nginx и проверка работоспособности**
-  * Остановка системной службы и запуск кастомного конфига по абсолютному пути:
+* **Способ 3. Удаление по маске (имени и дате)**
+  * Запуск утилиты и ввод уникального сквозного ключа букв и текущей даты (`ДДММГГ`):
     ```bash
-    sudo systemctl stop nginx
-    sudo nginx -c \$(pwd)/nginx/nginx.conf
+    ./main.sh 3
+    # При запросе маски ввести: az_200726
     ```
-  * Проверка ответа веб-страницы на 81 порту:
+
+* **Итоговая проверка восстановления системы**
+  * Подтверждение проверяющему, что всё мусорное пространство полностью очищено, а свободный объем вернулся к исходным показателям:
     ```bash
-    curl http://localhost:81
+    df -h /
     ```
+## Инструкция по проверке и запуску скриптов (Part 4 - Part 6)
 
-## Part 4. Свой докер
+### Part 4. Генератор логов
 
-* **Создание стартового скрипта (`run.sh`)**
-  * Написан скрипт для одновременного запуска FastCGI-приложения и Nginx на переднем плане:
+* **Запуск скрипта генерации логов Nginx**
+  * Скрипт создаёт 5 файлов логов в формате Combined с фейковыми данными (коды ответов, IP, методы, даты):
     ```bash
-    #!/bin/bash
-    spawn-fcgi -p 8080 ./server
-    nginx -g "daemon off;"
+    ./main.sh
     ```
 
-* **Написание инструкции сборки (`Dockerfile`)**
-  * Создан `Dockerfile` (базовый образ `nginx:latest`) с объединением команд в один вызов `RUN` для оптимизации слоев:
-    ```dockerfile
-    FROM nginx:latest
-    WORKDIR /home/
-    COPY server.c .
-    COPY run.sh .
-    RUN apt-get update && \
-        apt-get install -y gcc libfcgi-dev spawn-fcgi && \
-        gcc server.c -o server -lfcgi && \
-        chmod +x run.sh
-    EXPOSE 80
-    CMD ["./run.sh"]
-    ```
-
-* **Сборка и проверка докер-образа**
-  * Сборка кастомного образа с тегом и проверка его наличия в локальной системе:
+* **Проверка результатов для проверяющего**
+  * Проверка наличия сгенерированных файлов в текущей директории:
     ```bash
-    docker build -t my_server:v1 .
-    docker images
+    ls -la nginx_day_*.log
     ```
-
-* **Настройка конфигурации Nginx на хост-машине**
-  * Создан файл по пути `./nginx/nginx.conf` для проксирования на внутренний FastCGI:
-    ```nginx
-    server {
-        listen 80;
-        location / {
-            fastcgi_pass 127.0.0.1:8080;
-            include /etc/nginx/fastcgi_params;
-        }
-    }
-    ```
-
-* **Запуск контейнера с маппингом портов и папки**
-  * Запуск контейнера с пробросом 81-го порта на 80-й и точечным монтированием файла конфигурации:
+  * Просмотр структуры записей (каждая строка должна содержать валидный IP, дату, HTTP-метод, URL, код ответа и User-Agent):
     ```bash
-    docker run -d -p 81:80 -v \$(pwd)/nginx/nginx.conf:/etc/nginx/nginx.conf --name fcgi_container my_server:v1
+    head -n 5 nginx_day_1.log
     ```
-  * Проверка работы страницы в терминале хоста:
+
+### Part 5. Мониторинг
+
+* **Запуск и проверка сбора метрик через Prometheus**
+  * Скрипт-парсер из этой части анализирует логи из Part 4 по заданному параметру (`1` — все записи с кодом 2xx, `2` — уникальные IP, `3` — запросы с ошибками и т.д.):
     ```bash
-    curl http://localhost:81
+    ./main.sh 3
     ```
+  * *Ожидаемый результат:* Вывод в консоль отфильтрованных данных согласно выбранному режиму.
 
-* **Добавление страницы статуса на лету**
-  * В локальный файл `./nginx/nginx.conf` внутрь блока `server` добавлен путь `/status`:
-    ```nginx
-    location /status {
-        stub_status on;
-    }
-    ```
-  * Применение изменений путём перезапуска контейнера (без пересборки образа) и итоговая проверка:
+* **Проверка доступности веб-интерфейсов для защиты**
+  * Продемонстрировать проверяющему, что службы мониторинга запущены и собирают системные метрики:
     ```bash
-    docker restart fcgi_container
-    curl http://localhost:81/status
-    ```
-## Part 5. Dockle
+    # Проверка работы Prometheus (метрики, таргеты)
+    curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[].job'
 
-* **Первичное сканирование образа на безопасность**
-  * Запуск утилиты `dockle` через технический контейнер для поиска уязвимостей CIS Benchmarks:
+    # Проверка работы Node Exporter (сырые метрики железа)
+    curl -s http://localhost:9100/metrics | head -n 5
+    ```
+  * *Демонстрация Grafana:* Открыть в браузере `http://localhost:3000` и показать живой дашборд (например, ID 795), где графики CPU, RAM и диска меняются в реальном времени.
+
+### Part 6. GoAccess
+
+* **Запуск анализатора логов GoAccess в терминале**
+  * Запуск утилиты для интерактивного анализа одного из сгенерированных в Part 4 лог-файлов прямо в консоли:
     ```bash
-    sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock goodwithtech/dockle --accept-key NGINX_GPGKEY my_server:v1
+    goaccess nginx_day_1.log --log-format=COMBINED
     ```
-  * Обнаружены критические ошибки (`FATAL`): использование утилиты `sudo`, запуск процессов от пользователя `root` и ложные срабатывания на GPG-ключи Nginx.
+  * *Ожидаемый результат:* Откроется псевдографический интерфейс со сводной статистикой по кодам ответов, трафику и посетителям. Выход из режима — клавиша `q`.
 
-* **Обновление конфигурации Nginx (`./nginx/nginx.conf`)**
-  * Перевод Nginx на безопасный порт `8080` (для работы без прав root) и изменение временных путей к кэшу:
-    ```nginx
-    server {
-        listen 8080;
-        client_body_temp_path /tmp/client_temp;
-        proxy_temp_path       /tmp/proxy_temp;
-        fastcgi_temp_path     /tmp/fastcgi_temp;
-
-        location /status { stub_status on; }
-        location / {
-            fastcgi_pass 127.0.0.1:8081;
-            include /etc/nginx/fastcgi_params;
-        }
-    }
-    ```
-
-* **Обновление стартового скрипта (`run.sh`)**
-  * Удаление команды `sudo` и перевод FastCGI-сервера на непривилегированный порт `8081`:
+* **Генерация красивого HTML-отчёта**
+  * Сборка сквозной аналитики по всем 5 лог-файлам разом в одну веб-страницу:
     ```bash
-    #!/bin/bash
-    spawn-fcgi -p 8081 ./server
-    nginx -g "daemon off;"
+    cat nginx_day_*.log | goaccess - --log-format=COMBINED -o report.html
     ```
 
-* **Написание безопасного `Dockerfile`**
-  * Исключение `sudo`, выдача прав пользователю `nginx` на системные каталоги логов и сброс битов `setuid`/`setgid`:
-    ```dockerfile
-    FROM nginx:latest
-    WORKDIR /home/
-    COPY server.c .
-    COPY run.sh .
-    RUN apt-get update && \
-        apt-get install -y gcc libfcgi-dev spawn-fcgi && \
-        gcc server.c -o server -lfcgi && \
-        chmod +x run.sh && \
-        chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx /home/ && \
-        touch /var/run/nginx.pid && \
-        chown nginx:nginx /var/run/nginx.pid && \
-        find / -perm /6000 -type f -exec chmod a-s {} \; 2>/dev/null || true && \
-        apt-get clean && \
-        rm -rf /var/lib/apt/lists/*
-    USER nginx
-    EXPOSE 8080
-    CMD ["./run.sh"]
-    ```
+* **Проверка результата для проверяющего**
+  * Открыть созданный файл `report.html` в браузере хост-машины (через проброс портов Nginx или просто кликнув по файлу).
+  * *Ожидаемый результат:* Интерактивная веб-панель с графиками, диаграммами и детальным распределением HTTP-ошибок и уникальных хостов.
 
-* **Пересборка образа и финальная проверка безопасности**
-  * Сборка защищённой версии образа `v3`:
-    ```bash
-    docker build -t my_server:v3 .
-    ```
-  * Итоговый запуск сканера с игнорированием системных переменных GPG-ключей веб-сервера Nginx:
-    ```bash
-    sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock goodwithtech/dockle --accept-key NGINX_GPGKEYS --accept-key NGINX_GPGKEY_PATH --accept-key NGINX_GPGKEY my_server:v3
-    ```
-  * Результат проверки: **`PASS`** (0 ошибок `FATAL`, 0 ошибок `WARN`).
+## Part 7. Prometheus и Grafana
 
-## Part 6. Базовый Docker Compose
-
-* **Обновление стартового скрипта приложения (`run.sh`)**
-  * Изменён режим запуска FastCGI-сервера на передний план (флаг `-n`) для удержания контейнера:
-    ```bash
-    #!/bin/bash
-    exec spawn-fcgi -p 81 -n ./server
-    ```
-
-* **Написание изолированного `Dockerfile`**
-  * Создан `Dockerfile` на базе Ubuntu без установки Nginx и без использования инструкции `EXPOSE`:
-    ```dockerfile
-    FROM ubuntu:24.04
-    WORKDIR /home/
-    COPY server.c .
-    COPY run.sh .
-    RUN apt-get update && \
-        apt-get install -y gcc libfcgi-dev spawn-fcgi && \
-        gcc server.c -o server -lfcgi && \
-        chmod +x run.sh && \
-        useradd -m -s /bin/bash app_user && \
-        chown -R app_user:app_user /home/ && \
-        find / -perm /6000 -type f -exec chmod a-s {} \; 2>/dev/null || true && \
-        apt-get clean && \
-        rm -rf /var/lib/apt/lists/*
-    USER app_user
-    CMD ["./run.sh"]
-    ```
-
-* **Создание конфигурации проксирующего Nginx (`./nginx/nginx.conf`)**
-  * Настроен проброс трафика с порта `8080` на порт `81` контейнера приложения `web_app`:
-    ```nginx
-    server {
-        listen 8080;
-        location /status { stub_status on; }
-        location / {
-            fastcgi_pass web_app:81;
-            include /etc/nginx/fastcgi_params;
-        }
-    }
-    ```
-
-* **Написание оркестрового сценария (`docker-compose.yml`)**
-  * Создан файл конфигурации для связывания многоконтейнерной архитектуры в общую сеть:
+* **Настройка сбора метрик в Prometheus (`/etc/prometheus/prometheus.yml`)**
+  * В конфигурационный файл добавлены задания (`jobs`) для мониторинга самого Prometheus и хост-машины через Node Exporter:
     ```yaml
-    version: '3.8'
-    services:
-      web_app:
-        build: .
-        image: my_fcgi_app:v1
-        container_name: fcgi_backend
-        restart: always
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
 
-      nginx_proxy:
-        image: nginx:latest
-        container_name: nginx_balancer
-        ports:
-          - "80:8080"
-        volumes:
-          - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-        depends_on:
-          - web_app
-        restart: always
+      - job_name: 'node-exporter'
+        static_configs:
+          - targets: ['localhost:9100']
     ```
-
-* **Очистка системы, сборка и запуск проекта**
-  * Остановка всех старых процессов на 80-м порту хоста, сборка образов и запуск инфраструктуры в фоне:
+  * Перезапуск службы для применения настроек:
     ```bash
-    sudo fuser -k 80/tcp 2>/dev/null
-    sudo docker stop \$(sudo docker ps -aq) 2>/dev/null
-    sudo docker rm \$(sudo docker ps -aq) 2>/dev/null
-    
-    docker compose build
-    docker compose up -d
+    sudo systemctl restart prometheus
     ```
 
-* **Итоговая проверка доступности сервисов**
-  * Тестирование ответа FastCGI-сервера и страницы статуса Nginx на внешнем 80-м порту:
+* **Проверка активности целей (Targets) через API**
+  * Запрос к Prometheus для подтверждения статуса `up` у всех настроенных джобов:
     ```bash
-    curl http://localhost:80
-    curl http://localhost:80/status
+    curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job, health}'
     ```
+
+* **Интеграция Grafana и запуск дашбордов**
+  * Проверка связи Grafana с базой данных Prometheus (Data Source настроен по адресу `http://localhost:9090`).
+  * Импортирован официальный дашборд (Node Exporter Full, ID: `1860` или `11074`) для визуализации системных метрик.
+
+* **Анализ базовых метрик в Grafana (PromQL)**
+  * **ЦПУ (CPU):** Построение графика текущей утилизации процессора:
+    ```text
+    avg_over_time(node_cpu_seconds_total{mode!="idle"}[5m])
+    ```
+  * **Оперативная память (RAM):** Расчёт занятого объёма памяти в байтах:
+    ```text
+    node_memory_MemTotal_bytes - node_memory_MemFree_bytes - node_memory_Buffers_bytes - node_memory_Cached_bytes
+    ```
+  * **Жесткий диск (Disk Space):** Расчёт свободного места на корневом разделе `/`:
+    ```text
+    node_filesystem_free_bytes{mountpoint="/"}
+    ```
+
+* **Проведение стресс-теста для демонстрации живых графиков**
+  * Запуск утилиты `stress` для искусственной загрузки процессора и оперативной памяти на 20 секунд:
+    ```bash
+    stress -c 2 -m 1 --vm-bytes 128M -t 20s
+    ```
+  * *Ожидаемый результат для проверяющего:* В интерфейсе Grafana на графиках CPU наблюдается резкий пик утилизации до 100%, а график свободной памяти RAM пропорционально падает вниз.
+
+  ## Part 9. Свой node_exporter
+
+* **Создание Bash-скрипта экспортера (`my_exporter.sh`)**
+  * Разработан скрипт для циклического сбора реальных системных метрик (каждые 3 секунды) и их вывода в официальном текстовом формате Prometheus:
+    ```bash
+    #!/bin/bash
+    OUTPUT_FILE="/var/www/html/metrics.txt"
+    while true; do
+        CPU_USAGE=\$(awk '/cpu / {print 100 - (\$5*100/(\$2+\$3+\$4+\$5+\$6+\$7+\$8))}' /proc/stat)
+        RAM_FREE=\$(free -b | awk '/Mem:/ {print \$4}')
+        DISK_FREE=\$(df -B1 / | awk 'NR==2 {print \$4}')
+
+        sudo tee "\$OUTPUT_FILE" << EOF > /dev/null
+    # HELP my_cpu_usage_percent Current CPU usage in percent.
+    # TYPE my_cpu_usage_percent gauge
+    my_cpu_usage_percent \$CPU_USAGE
+    # HELP my_ram_free_bytes Free RAM size in bytes.
+    # TYPE my_ram_free_bytes gauge
+    my_ram_free_bytes \$RAM_FREE
+    # HELP my_disk_free_bytes Free root filesystem space in bytes.
+    # TYPE my_disk_free_bytes gauge
+    my_disk_free_bytes \$DISK_FREE
+    EOF
+        sleep 3
+    done
+    ```
+  * Выдача прав и запуск скрипта в фоновом режиме:
+    ```bash
+    chmod +x my_exporter.sh
+    sudo ./my_exporter.sh &
+    ```
+
+* **Настройка Nginx для отдачи кастомных метрик (`/etc/nginx/sites-available/custom_exporter`)**
+  * Создан файл конфигурации виртуального хоста на порту `9101` для трансляции plain-text файла:
+    ```nginx
+    server {
+        listen 9101;
+        server_name localhost;
+        location /metrics {
+            root /var/www/html;
+            default_type text/plain;
+            try_files /metrics.txt =404;
+        }
+    }
+    ```
+  * Активация конфигурации и перезапуск веб-сервера:
+    ```bash
+    sudo ln -sf /etc/nginx/sites-available/custom_exporter /etc/nginx/sites-enabled/
+    sudo systemctl restart nginx
+    ```
+
+* **Добавление кастомного джоба в Prometheus (`/etc/prometheus/prometheus.yml`)**
+  * В секцию `scrape_configs` добавлен блок опроса нашего собственного экспортера с интервалом в 3 секунды:
+    ```yaml
+      - job_name: 'my_own_node_exporter'
+        scrape_interval: 3s
+        static_configs:
+          - targets: ['localhost:9101']
+    ```
+  * Применение изменений: `sudo systemctl restart prometheus`
+
+* **Контрольная проверка сбора данных**
+  * Проверка доступности сырого текста метрик через Nginx:
+    ```bash
+    curl http://localhost:9101/metrics
+    ```
+  * Проверка успешного подключения новой цели со статусом `up` в Prometheus:
+    ```bash
+    curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.job=="my_own_node_exporter") | {job, health}'
+    ```
+
+* **Отображение кастомных метрик в Grafana**
+  * Создан новый дашборд, где для вывода графиков используются прямые PromQL-запросы к метрикам нашего скрипта:
+    * Панель CPU: `my_cpu_usage_percent` (Unit: `Percent`)
+    * Панель RAM: `my_ram_free_bytes` (Unit: `Data -> Bytes (IEC)`)
+    * Панель Disk: `my_disk_free_bytes` (Unit: `Data -> Bytes (IEC)`)
