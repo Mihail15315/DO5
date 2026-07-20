@@ -114,3 +114,42 @@
     ```
     *   ![Финальная проверка доступности страницы статуса Nginx на заново развернутом из архива контейнере](/screens/08_final_status_check.png)
 
+## Part 3. Мини веб-сервер
+
+* **Написание и компиляция FastCGI-сервера на C (`server.c`)**
+  * Создан файл `server.c` с выводом страницы «Hello, World!».
+  * Сборка исходного кода в исполняемый бинарный файл:
+    ```bash
+    gcc server.c -o server -lfcgi
+    ```
+
+* **Запуск сервера через spawn-fcgi**
+  * Выдача прав на исполнение бинарника и его запуск на порту 8080:
+    ```bash
+    chmod +x ./server
+    spawn-fcgi -p 8080 ./server
+    ```
+
+* **Настройка конфигурации Nginx**
+  * Создан файл по пути `./nginx/nginx.conf` со следующим блоком проксирования:
+    ```nginx
+    server {
+        listen 81;
+        location / {
+            fastcgi_pass 127.0.0.1:8080;
+            include /etc/nginx/fastcgi_params;
+        }
+    }
+    ```
+
+* **Запуск Nginx и проверка работоспособности**
+  * Остановка системной службы и запуск кастомного конфига по абсолютному пути:
+    ```bash
+    sudo systemctl stop nginx
+    sudo nginx -c \$(pwd)/nginx/nginx.conf
+    ```
+  * Проверка ответа веб-страницы на 81 порту:
+    ```bash
+    curl http://localhost:81
+    ```
+
