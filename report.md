@@ -153,3 +153,218 @@
     curl http://localhost:81
     ```
 
+## Part 4. Свой докер
+
+* **Создание стартового скрипта (`run.sh`)**
+  * Написан скрипт для одновременного запуска FastCGI-приложения и Nginx на переднем плане:
+    ```bash
+    #!/bin/bash
+    spawn-fcgi -p 8080 ./server
+    nginx -g "daemon off;"
+    ```
+
+* **Написание инструкции сборки (`Dockerfile`)**
+  * Создан `Dockerfile` (базовый образ `nginx:latest`) с объединением команд в один вызов `RUN` для оптимизации слоев:
+    ```dockerfile
+    FROM nginx:latest
+    WORKDIR /home/
+    COPY server.c .
+    COPY run.sh .
+    RUN apt-get update && \
+        apt-get install -y gcc libfcgi-dev spawn-fcgi && \
+        gcc server.c -o server -lfcgi && \
+        chmod +x run.sh
+    EXPOSE 80
+    CMD ["./run.sh"]
+    ```
+
+* **Сборка и проверка докер-образа**
+  * Сборка кастомного образа с тегом и проверка его наличия в локальной системе:
+    ```bash
+    docker build -t my_server:v1 .
+    docker images
+    ```
+
+* **Настройка конфигурации Nginx на хост-машине**
+  * Создан файл по пути `./nginx/nginx.conf` для проксирования на внутренний FastCGI:
+    ```nginx
+    server {
+        listen 80;
+        location / {
+            fastcgi_pass 127.0.0.1:8080;
+            include /etc/nginx/fastcgi_params;
+        }
+    }
+    ```
+
+* **Запуск контейнера с маппингом портов и папки**
+  * Запуск контейнера с пробросом 81-го порта на 80-й и точечным монтированием файла конфигурации:
+    ```bash
+    docker run -d -p 81:80 -v \$(pwd)/nginx/nginx.conf:/etc/nginx/nginx.conf --name fcgi_container my_server:v1
+    ```
+  * Проверка работы страницы в терминале хоста:
+    ```bash
+    curl http://localhost:81
+    ```
+
+* **Добавление страницы статуса на лету**
+  * В локальный файл `./nginx/nginx.conf` внутрь блока `server` добавлен путь `/status`:
+    ```nginx
+    location /status {
+        stub_status on;
+    }
+    ```
+  * Применение изменений путём перезапуска контейнера (без пересборки образа) и итоговая проверка:
+    ```bash
+    docker restart fcgi_container
+    curl http://localhost:81/status
+    ```
+## Part 5. Dockle
+
+* **Первичное сканирование образа на безопасность**
+  * Запуск утилиты `dockle` через технический контейнер для поиска уязвимостей CIS Benchmarks:
+    ```bash
+    sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock goodwithtech/dockle --accept-key NGINX_GPGKEY my_server:v1
+    ```
+  * Обнаружены критические ошибки (`FATAL`): использование утилиты `sudo`, запуск процессов от пользователя `root` и ложные срабатывания на GPG-ключи Nginx.
+
+* **Обновление конфигурации Nginx (`./nginx/nginx.conf`)**
+  * Перевод Nginx на безопасный порт `8080` (для работы без прав root) и изменение временных путей к кэшу:
+    ```nginx
+    server {
+        listen 8080;
+        client_body_temp_path /tmp/client_temp;
+        proxy_temp_path       /tmp/proxy_temp;
+        fastcgi_temp_path     /tmp/fastcgi_temp;
+
+        location /status { stub_status on; }
+        location / {
+            fastcgi_pass 127.0.0.1:8081;
+            include /etc/nginx/fastcgi_params;
+        }
+    }
+    ```
+
+* **Обновление стартового скрипта (`run.sh`)**
+  * Удаление команды `sudo` и перевод FastCGI-сервера на непривилегированный порт `8081`:
+    ```bash
+    #!/bin/bash
+    spawn-fcgi -p 8081 ./server
+    nginx -g "daemon off;"
+    ```
+
+* **Написание безопасного `Dockerfile`**
+  * Исключение `sudo`, выдача прав пользователю `nginx` на системные каталоги логов и сброс битов `setuid`/`setgid`:
+    ```dockerfile
+    FROM nginx:latest
+    WORKDIR /home/
+    COPY server.c .
+    COPY run.sh .
+    RUN apt-get update && \
+        apt-get install -y gcc libfcgi-dev spawn-fcgi && \
+        gcc server.c -o server -lfcgi && \
+        chmod +x run.sh && \
+        chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx /home/ && \
+        touch /var/run/nginx.pid && \
+        chown nginx:nginx /var/run/nginx.pid && \
+        find / -perm /6000 -type f -exec chmod a-s {} \; 2>/dev/null || true && \
+        apt-get clean && \
+        rm -rf /var/lib/apt/lists/*
+    USER nginx
+    EXPOSE 8080
+    CMD ["./run.sh"]
+    ```
+
+* **Пересборка образа и финальная проверка безопасности**
+  * Сборка защищённой версии образа `v3`:
+    ```bash
+    docker build -t my_server:v3 .
+    ```
+  * Итоговый запуск сканера с игнорированием системных переменных GPG-ключей веб-сервера Nginx:
+    ```bash
+    sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock goodwithtech/dockle --accept-key NGINX_GPGKEYS --accept-key NGINX_GPGKEY_PATH --accept-key NGINX_GPGKEY my_server:v3
+    ```
+  * Результат проверки: **`PASS`** (0 ошибок `FATAL`, 0 ошибок `WARN`).
+
+## Part 6. Базовый Docker Compose
+
+* **Обновление стартового скрипта приложения (`run.sh`)**
+  * Изменён режим запуска FastCGI-сервера на передний план (флаг `-n`) для удержания контейнера:
+    ```bash
+    #!/bin/bash
+    exec spawn-fcgi -p 81 -n ./server
+    ```
+
+* **Написание изолированного `Dockerfile`**
+  * Создан `Dockerfile` на базе Ubuntu без установки Nginx и без использования инструкции `EXPOSE`:
+    ```dockerfile
+    FROM ubuntu:24.04
+    WORKDIR /home/
+    COPY server.c .
+    COPY run.sh .
+    RUN apt-get update && \
+        apt-get install -y gcc libfcgi-dev spawn-fcgi && \
+        gcc server.c -o server -lfcgi && \
+        chmod +x run.sh && \
+        useradd -m -s /bin/bash app_user && \
+        chown -R app_user:app_user /home/ && \
+        find / -perm /6000 -type f -exec chmod a-s {} \; 2>/dev/null || true && \
+        apt-get clean && \
+        rm -rf /var/lib/apt/lists/*
+    USER app_user
+    CMD ["./run.sh"]
+    ```
+
+* **Создание конфигурации проксирующего Nginx (`./nginx/nginx.conf`)**
+  * Настроен проброс трафика с порта `8080` на порт `81` контейнера приложения `web_app`:
+    ```nginx
+    server {
+        listen 8080;
+        location /status { stub_status on; }
+        location / {
+            fastcgi_pass web_app:81;
+            include /etc/nginx/fastcgi_params;
+        }
+    }
+    ```
+
+* **Написание оркестрового сценария (`docker-compose.yml`)**
+  * Создан файл конфигурации для связывания многоконтейнерной архитектуры в общую сеть:
+    ```yaml
+    version: '3.8'
+    services:
+      web_app:
+        build: .
+        image: my_fcgi_app:v1
+        container_name: fcgi_backend
+        restart: always
+
+      nginx_proxy:
+        image: nginx:latest
+        container_name: nginx_balancer
+        ports:
+          - "80:8080"
+        volumes:
+          - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+        depends_on:
+          - web_app
+        restart: always
+    ```
+
+* **Очистка системы, сборка и запуск проекта**
+  * Остановка всех старых процессов на 80-м порту хоста, сборка образов и запуск инфраструктуры в фоне:
+    ```bash
+    sudo fuser -k 80/tcp 2>/dev/null
+    sudo docker stop \$(sudo docker ps -aq) 2>/dev/null
+    sudo docker rm \$(sudo docker ps -aq) 2>/dev/null
+    
+    docker compose build
+    docker compose up -d
+    ```
+
+* **Итоговая проверка доступности сервисов**
+  * Тестирование ответа FastCGI-сервера и страницы статуса Nginx на внешнем 80-м порту:
+    ```bash
+    curl http://localhost:80
+    curl http://localhost:80/status
+    ```
